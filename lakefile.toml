@@ -1,0 +1,32 @@
+name = "solady"
+version = "0.1.0"
+keywords = ["math"]
+defaultTargets = ["Solady"]
+
+[leanOptions]
+pp.unicode.fun = true # pretty-prints `fun a ↦ b`
+relaxedAutoImplicit = false
+weak.linter.mathlibStandardSet = true
+maxSynthPendingDepth = 3
+#weak.native.external_lib_dir = "lib"
+#weak.supportInterpreter = true
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.22.0"
+
+[[require]]
+name = "evmyul"
+git = "https://github.com/NethermindEth/EVMYulLean.git"
+rev = "main"
+
+[[lean_lib]]
+name = "Solady"
+root = "Solady"
+
+[[lean_exe]]
+name = "main"
+root = "Main"
+supportInterpreter = true
+
