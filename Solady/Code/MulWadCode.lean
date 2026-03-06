@@ -4,7 +4,7 @@ import EvmYul.State.ExecutionEnv
 import EvmYul.State.BlockHeader
 import EvmYul.UInt256
 
-namespace Solady
+namespace Solady.Code
 
 /--
 ```solidity
@@ -44,7 +44,7 @@ print("]")
 '
 ```
 -/
-def mulWadBytecode : ByteArray :=
+def mulWad_bytecode : ByteArray :=
   ByteArray.mk #[
     0x60, 0x80, 0x60, 0x40, 0x52, 0x34, 0x80, 0x15, 0x60, 0x0e, 0x57, 0x5f, 0x5f, 0xfd, 0x5b, 0x50,
     0x60, 0x04, 0x36, 0x10, 0x60, 0x26, 0x57, 0x5f, 0x35, 0x60, 0xe0, 0x1c, 0x80, 0x63, 0xfb, 0x4e,
@@ -65,11 +65,11 @@ def mulWadBytecode : ByteArray :=
 /--
 `cast sig "mulWad(uint256,uint256)"`
 -/
-def mulWadSelector : UInt32 :=
+def mulWad_selector : UInt32 :=
   0xfb4e5e87
 
 /-- `cast sig "MulWadFailed()"` -/
-def mulWadFailedSelector : UInt32 :=
+def mulWad_failed_selector : UInt32 :=
   0xbac65e5b
 
-end Solady
+end Solady.Code

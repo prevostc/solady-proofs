@@ -13,8 +13,8 @@ def main : IO Unit := do
   let x := UInt256.ofNat (3 * WAD)
   let y := UInt256.ofNat (7 * WAD)
   let expected := UInt256.ofNat (21 * WAD)
-  let result: Except EVM.ExecutionException Outcome := runMulWadOutcome fuel x y
-  IO.println s!"runMulWadOutcome {fuel} {x} {y} "
+  let result: Except EVM.ExecutionException Outcome := run_mulWad_outcome fuel x y
+  IO.println s!"run_mulWad_outcome {fuel} {x} {y} "
   match result with
   | .ok (Outcome.ok e) => if e = expected
     then IO.println s!"Success: {e}" else IO.println s!"Failed: {e}"
