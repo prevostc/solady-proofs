@@ -90,7 +90,7 @@ Spec-level outcome: either returns a uint256, or reverts.
 inductive Outcome where
   | ok (z : UInt256) : Outcome
   | revert : Outcome
-  deriving Repr, BEq
+  deriving Repr, BEq, DecidableEq
 
 
 /--
