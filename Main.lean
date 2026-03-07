@@ -1,22 +1,21 @@
-import Mathlib
-import EvmYul.UInt256
-import Solady.EvmUtils
-import Solady.Code.MulWadCode
-import Solady.Dispatcher
-import Solady.Proofs.MulWadProof
+import Solady.MulWad
+import Solady.Code.MulWadYul
 
 open Solady
 open EvmYul
 
-def main : IO Unit := do
-  let fuel := 200000
-  let WAD := (10^18)
-  let x := UInt256.ofNat (3 * WAD)
-  let y := UInt256.ofNat (7 * WAD)
-  let expected := UInt256.ofNat (21 * WAD)
-  let result := Dispatcher.run_harness Code.mulWad_bytecode fuel x y
-  IO.println s!"run_harness mulWad_bytecode {fuel} {x} {y}"
-  match result with
-  | .ok e => if e = expected
-    then IO.println s!"Success: {e}" else IO.println s!"Failed: {e}"
-  | .revert => IO.println s!"Reverted"
+
+#eval mulWad (⟨3 * 10 ^ 18⟩) (⟨7 * 10 ^ 18⟩)
+-- expected: .ok 21000000000000000000
+
+#eval mulWad (⟨0⟩) (⟨7 * 10 ^ 18⟩)
+-- expected: .ok 0
+
+#eval mulWad (⟨10 ^ 18⟩) (⟨10 ^ 18⟩)
+-- expected: .ok 1000000000000000000 (= 10^18, i.e. 1.0 * 1.0 = 1.0)
+
+#eval mulWad (⟨2 ^ 256 - 1⟩) (⟨2 * 10 ^ 18⟩)
+-- expected: .revert (overflow)
+
+#eval mulWad (⟨42⟩) (⟨0⟩)
+-- expected: .ok 0 (y=0 → no overflow, result is 0)

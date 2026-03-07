@@ -1,3 +1,4 @@
--- Root module for the Solady library
-import Solady.Specs.MulWadSpec
-import Solady.Dispatcher
+import Solady.MulWad
+import Solady.Code.MulWadYul
+import Solady.Proofs.MulWadArith
+import Solady.Proofs.MulWadInterp
