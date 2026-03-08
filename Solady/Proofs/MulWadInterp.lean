@@ -61,38 +61,41 @@ many layers of mutual recursion to prove.
 **Revert path:** When `y ≠ 0` and `gt(x, div(not(0), y)) ≠ 0`,
 executing the full body results in `.error .Revert`.
 -/
-axiom exec_body_revert
-    (fuel : Nat) (ss : SharedState .Yul) (vs : VarStore)
-    (xv yv : UInt256)
+theorem exec_body_revert
+    (fuel : ℕ) (ss : SharedState .Yul) (vs : VarStore)
+    (x₀ y₀ : UInt256)
     (hfuel : fuel ≥ 20)
-    (hx : vs.lookup "x" = some xv)
-    (hy : vs.lookup "y" = some yv)
+    (hx : vs.lookup "x" = some x₀)
+    (hy : vs.lookup "y" = some y₀)
     (hz : vs.lookup "z" = some ⟨0⟩)
-    (hyne : yv ≠ ⟨0⟩)
-    (hgt : UInt256.gt xv (UInt256.div (UInt256.lnot ⟨0⟩) yv) ≠ ⟨0⟩)
+    (hy_ne : y₀ ≠ ⟨0⟩)
+    (hgt : UInt256.gt x₀ (UInt256.div (UInt256.lnot ⟨0⟩) y₀) ≠ ⟨0⟩)
     (co : Option YulContract) :
     Yul.exec fuel
       (.Block mulWad_yul.body)
       co
       (.Ok ss vs) =
-    .error .Revert
+    .error .Revert := by
+      sorry
 
 /--
 **Success path:** When the overflow guard does NOT trigger,
 executing the full body succeeds with `"z"` set to `div(mul(x,y), WAD)`.
 -/
-axiom exec_body_ok
-    (fuel : Nat) (ss : SharedState .Yul) (vs : VarStore)
-    (xv yv : UInt256)
+theorem exec_body_ok
+    (fuel : ℕ) (ss : SharedState .Yul) (vs : VarStore)
+    (x₀ y₀ : UInt256)
     (hfuel : fuel ≥ 20)
-    (hx : vs.lookup "x" = some xv)
-    (hy : vs.lookup "y" = some yv)
+    (hx : vs.lookup "x" = some x₀)
+    (hy : vs.lookup "y" = some y₀)
     (hz : vs.lookup "z" = some ⟨0⟩)
-    (hguard : ¬(yv ≠ ⟨0⟩ ∧ UInt256.gt xv (UInt256.div (UInt256.lnot ⟨0⟩) yv) ≠ ⟨0⟩))
+    (hguard : ¬(y₀ ≠ ⟨0⟩ ∧ UInt256.gt x₀ (UInt256.div (UInt256.lnot ⟨0⟩) y₀) ≠ ⟨0⟩))
     (co : Option YulContract) :
     ∃ ss' vs',
       Yul.exec fuel (.Block mulWad_yul.body) co (.Ok ss vs) = .ok (.Ok ss' vs') ∧
-      vs'.lookup "z" = some (UInt256.div (UInt256.mul xv yv) (UInt256.ofNat (10 ^ 18)))
+      vs'.lookup "z" = some (UInt256.div (UInt256.mul x₀ y₀) (UInt256.ofNat (10 ^ 18)))
+      := by
+      sorry
 
 /-! ## mulWad-specific bridge -/
 
@@ -107,39 +110,39 @@ private theorem lnot_zero_eq_U256_MAX :
 and extracting the result via `interpResult` agrees with the pure `mulWad`.
 -/
 theorem mulWad_yul_equiv
-    (fuel : Nat) (ss : SharedState .Yul) (vs : VarStore)
-    (xv yv : UInt256)
+    (fuel : ℕ) (ss : SharedState .Yul) (vs : VarStore)
+    (x₀ y₀ : UInt256)
     (hfuel : fuel ≥ 20)
-    (hx : vs.lookup "x" = some xv)
-    (hy : vs.lookup "y" = some yv)
+    (hx : vs.lookup "x" = some x₀)
+    (hy : vs.lookup "y" = some y₀)
     (hz : vs.lookup "z" = some ⟨0⟩)
     (co : Option YulContract) :
-    interpResult (Yul.exec fuel (.Block mulWad_yul.body) co (.Ok ss vs)) = mulWad xv yv := by
+    interpResult (Yul.exec fuel (.Block mulWad_yul.body) co (.Ok ss vs)) = mulWad x₀ y₀ := by
   unfold mulWad
-  by_cases hguard : yv ≠ ⟨0⟩ ∧ UInt256.gt xv (UInt256.div (UInt256.lnot ⟨0⟩) yv) ≠ ⟨0⟩
+  by_cases hguard : y₀ ≠ ⟨0⟩ ∧ UInt256.gt x₀ (UInt256.div (UInt256.lnot ⟨0⟩) y₀) ≠ ⟨0⟩
   · -- Revert case: the overflow guard fires
-    obtain ⟨hyne, hgtU⟩ := hguard
-    rw [exec_body_revert fuel ss vs xv yv hfuel hx hy hz hyne hgtU co]
+    obtain ⟨h₁, h₂⟩ := hguard
+    rw [exec_body_revert fuel ss vs x₀ y₀ hfuel hx hy hz h₁ h₂ co]
     simp only [interpResult]
-    have hgt_lean : xv > U256_MAX / yv := by
+    have h₃ : x₀ > U256_MAX / y₀ := by
       rw [← lnot_zero_eq_U256_MAX]
-      exact (gt_ne_zero_iff _ _).mp hgtU
-    simp [hyne, hgt_lean]
+      exact (gt_ne_zero_iff _ _).mp h₂
+    simp [h₁, h₃]
   · -- Success case: the overflow guard does NOT fire
-    obtain ⟨ss', vs', hexec, hvs_z⟩ := exec_body_ok fuel ss vs xv yv hfuel hx hy hz hguard co
+    obtain ⟨ss', vs', hexec, hvs_z⟩ := exec_body_ok fuel ss vs x₀ y₀ hfuel hx hy hz hguard co
     rw [hexec]
     simp only [interpResult]
     push_neg at hguard
-    have hguard_lean : ¬(yv ≠ ⟨0⟩ ∧ xv > U256_MAX / yv) := by
+    have h₄ : ¬(y₀ ≠ ⟨0⟩ ∧ x₀ > U256_MAX / y₀) := by
       push_neg
-      intro hyne
-      have hzero := hguard hyne
-      have hnotgt : ¬(UInt256.gt xv (UInt256.div (UInt256.lnot ⟨0⟩) yv) ≠ ⟨0⟩) := by
-        simp [hzero]
-      rw [gt_ne_zero_iff, lnot_zero_eq_U256_MAX] at hnotgt
-      exact fun h => hnotgt h
-    simp [hguard_lean]
-    change (Yul.State.Ok ss' vs').lookup! "z" = xv * yv / WAD
+      intro h₅
+      have h₆ := hguard h₅
+      have h₇ : ¬(UInt256.gt x₀ (UInt256.div (UInt256.lnot ⟨0⟩) y₀) ≠ ⟨0⟩) := by
+        simp [h₆]
+      rw [gt_ne_zero_iff, lnot_zero_eq_U256_MAX] at h₇
+      exact fun h => h₇ h
+    simp [h₄]
+    change (Yul.State.Ok ss' vs').lookup! "z" = x₀ * y₀ / WAD
     simp only [Yul.State.lookup!]
     rw [hvs_z]
     simp [WAD]

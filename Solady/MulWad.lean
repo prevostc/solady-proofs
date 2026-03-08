@@ -1,10 +1,10 @@
 import EvmYul.UInt256
+import Solady.Proofs.UInt256
 
 namespace Solady
 open EvmYul
+open Solady.Proofs.UInt256
 
-def U256_MAX : UInt256 := UInt256.ofNat (2 ^ 256 - 1)
-def WAD : UInt256 := UInt256.ofNat (10 ^ 18)
 
 inductive MulWadResult where
   | ok (z : UInt256)
