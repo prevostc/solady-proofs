@@ -27,24 +27,45 @@ open Solady.Code
 open Solady.Proofs.UInt256
 open Solady.Proofs.YulBase
 
--- re-define private defs we rely on
-private abbrev Transformer : EvmYul.OperationType → Type
-  | .EVM => EVM.Transformer
-  | .Yul => Yul.Transformer
-private def dispatchBinaryMachineStateOp
- (τ : EvmYul.OperationType) (op : EvmYul.MachineState → UInt256 → UInt256 → EvmYul.MachineState) :
-  Transformer τ
-:=
-  match τ with
-    | .EVM => EVM.binaryMachineStateOp op
-    | .Yul => Yul.binaryMachineStateOp op
-
 
 def interpret_mulWad_result (r : Except Yul.Exception Yul.State) : Option ℕ :=
   match r with
   | .ok s => some (s.lookup! "z").toNat
   | .error .Revert => .none
   | .error _ => none
+
+
+-- prove that when lookup x returns some, then x is in the varstore
+@[simp] theorem lookup_x_some_then_x_in_varstore :
+  ∀ vs : VarStore,
+  ∀ k : Identifier,
+  ∀ v : UInt256,
+  (vs.lookup k = some v) → (k ∈ vs) := by
+  intros vs k v h
+  apply Finmap.mem_of_lookup_eq_some h
+
+@[simp] theorem lookup_bang_get_by_key :
+  ∀ vs : VarStore,
+  ∀ ss : SharedState .Yul,
+  ∀ k : Identifier,
+  ∀ v : UInt256,
+  (vs.lookup k = some v) → ((State.Ok ss vs)[k]! = v) := by
+  intros vs ss k v h
+  have hmem : k ∈ vs := Finmap.mem_of_lookup_eq_some h
+  rw [getElem!, instGetElem?OfGetElemOfDecidable]
+  simp
+  unfold decidableGetElem?
+  simp
+  unfold State.store
+  simp
+  unfold getElem
+  unfold State.instGetElemIdentifierLiteralMemVarStoreStore
+  simp only [hmem, dite_true]
+  unfold State.lookup!
+  simp
+  rw [h]
+  rfl
+
 
 def mulWad_implem_is_correct : Prop :=
   ∀ x y fuel: ℕ,
@@ -59,14 +80,15 @@ def mulWad_implem_is_correct : Prop :=
     interpret_mulWad_result (Yul.exec fuel (.Block mulWad_yul.body) co (.Ok ss vs)) = mulWad x y
 
 
+
+
 theorem mulWad_implem_is_correct_proof : mulWad_implem_is_correct := by
-  intros x y fuel vs ss co hx hy hfuel hx_vs hy_vs
+  intros x y fuel vs ss co hx hy hfuel hx_lookup hy_lookup
+
   have pf : fuel ≠ 0 := by omega
   obtain ⟨fuel₁, rfl⟩ := Nat.exists_eq_succ_of_ne_zero pf
-  unfold interpret_mulWad_result
+  unfold interpret_mulWad_result mulWad_yul FunctionDefinition.body
   unfold Yul.exec -- exec one instruction
-  unfold mulWad_yul
-  unfold FunctionDefinition.body
   simp
   unfold Yul.exec
   have pf₁ : fuel₁ ≠ 0 := by omega
@@ -169,7 +191,9 @@ theorem mulWad_implem_is_correct_proof : mulWad_implem_is_correct := by
   unfold step
   unfold Id.run
   simp
-  unfold dispatchBinaryMachineStateOp
+  rw [lookup_bang_get_by_key vs ss "x" (UInt256.ofNat x) hx_lookup]
+  rw [lookup_bang_get_by_key vs ss "y" (UInt256.ofNat y) hy_lookup]
+  simp
 
 
 
