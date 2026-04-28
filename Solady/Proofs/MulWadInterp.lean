@@ -11,7 +11,7 @@ import Solady.Specs.MulWad
 import Solady.Code.MulWadYul
 import Solady.YulUtils
 import Solady.Proofs.UInt256
-import Solady.Proofs.YulBase
+import Solady.Proofs.YulSimp
 
 namespace Solady.Proofs.Interp
 
@@ -25,8 +25,7 @@ open EvmYul.UInt256.YulBridge
 open Solady
 open Solady.Code
 open Solady.Proofs.UInt256
-open Solady.Proofs.YulBase
-
+open Solady.Proofs.YulSimp
 
 def interpret_mulWad_result (r : Except Yul.Exception Yul.State) : Option ℕ :=
   match r with
@@ -35,238 +34,145 @@ def interpret_mulWad_result (r : Except Yul.Exception Yul.State) : Option ℕ :=
   | .error _ => none
 
 
--- prove that when lookup x returns some, then x is in the varstore
-@[simp] theorem lookup_x_some_then_x_in_varstore :
-  ∀ vs : VarStore,
-  ∀ k : Identifier,
-  ∀ v : UInt256,
-  (vs.lookup k = some v) → (k ∈ vs) := by
-  intros vs k v h
-  apply Finmap.mem_of_lookup_eq_some h
+def MULWAD_FUEL : ℕ := 12
 
-@[simp] theorem lookup_bang_get_by_key :
-  ∀ vs : VarStore,
-  ∀ ss : SharedState .Yul,
-  ∀ k : Identifier,
-  ∀ v : UInt256,
-  (vs.lookup k = some v) → ((State.Ok ss vs)[k]! = v) := by
-  intros vs ss k v h
-  have hmem : k ∈ vs := Finmap.mem_of_lookup_eq_some h
-  rw [getElem!, instGetElem?OfGetElemOfDecidable]
-  simp
-  unfold decidableGetElem?
-  simp
-  unfold State.store
-  simp
-  unfold getElem
-  unfold State.instGetElemIdentifierLiteralMemVarStoreStore
-  simp only [hmem, dite_true]
-  unfold State.lookup!
-  simp
-  rw [h]
+def mulWad_exec_test (fuel : ℕ) (x y : ℕ) : Except Yul.Exception Yul.State :=
+  let vs : VarStore := (∅ : VarStore)
+    |>.insert "x" (UInt256.ofNat x)
+    |>.insert "y" (UInt256.ofNat y)
+  Yul.exec fuel (.Block Solady.Code.mulWad_yul.body) none (.Ok Inhabited.default vs)
+
+def mulWad_exec_result (fuel : ℕ) (x y : ℕ) : Option ℕ :=
+  match mulWad_exec_test fuel x y with
+  | .ok (.Ok _ vs) => (vs.lookup "z").map (·.val.val)
+  | _ => none
+
+def mulWad_exec_is_out_of_fuel (fuel x y : ℕ) : Bool :=
+  match mulWad_exec_test fuel x y with
+  | .error .OutOfFuel => true
+  | _ => false
+
+def FUEL_OK : ℕ := 12
+
+#eval do
+  let result := mulWad_exec_test FUEL_OK (2 * 10^18) (3 * 10^18)
+  return match result with
+    | .ok s => s!"ok, z = {(State.lookup! "z" s).val.val}"
+    | .error .OutOfFuel => "error: OutOfFuel"
+    | .error .Revert => "error: Revert"
+    | .error _ => "error: other"
+
+-- For large numbers `decide` will time out, so we disable it for these examples only
+set_option linter.style.nativeDecide false
+-- fuel sufficiency
+example : mulWad_exec_result FUEL_OK (2 * 10^18) (3 * 10^18) = some (6 * 10^18) :=
+  by native_decide
+example : mulWad_exec_is_out_of_fuel (FUEL_OK - 1) (2 * 10^18) (3 * 10^18) = true :=
+  by native_decide
+-- correctness spot checks
+example : mulWad_exec_result FUEL_OK (5 * 10^18) (2 * 10^18) = some (10 * 10^18) :=
+  by native_decide
+example : mulWad_exec_result FUEL_OK 0            (3 * 10^18) = some 0  :=
+  by native_decide
+-- revert on overflow
+example : mulWad_exec_is_out_of_fuel (FUEL_OK - 1) (2^200) (2^200) = true := by native_decide
+
+set_option linter.style.nativeDecide true
+
+
+/--
+  Any `fuel ≥ FUEL_OK` can be reduced to exactly `fuel = FUEL_OK` for the
+  purposes of `exec` on `mulWad_yul.body`.
+  Proof: apply `exec_mono` after establishing the fuel=20 case.
+-/
+lemma mulWad_fuel_sufficient
+    (fuel : ℕ) (hfuel : fuel ≥ FUEL_OK)
+    (stmt : Stmt) (co : Option YulContract) (s s' : State)
+    (hfuel_ok : exec FUEL_OK stmt co s = .ok s') :
+    exec fuel stmt co s = .ok s' :=
+  exec_mono stmt co s s' hfuel_ok fuel hfuel
+
+
+theorem mulWad_implem_is_correct (x y fuel : ℕ) (vs : VarStore)
+    (ss : SharedState .Yul) (co : Option YulContract)
+    (hfuel : fuel ≥ FUEL_OK)
+    (hvx : vs.lookup "x" = some (UInt256.ofNat x))
+    (hvy : vs.lookup "y" = some (UInt256.ofNat y)) :
+    interpret_mulWad_result
+      (Yul.exec fuel (.Block mulWad_yul.body) co (.Ok ss vs))
+    = mulWad x y
+  := by
+
+  -- Step 1: reduce the fuel to FUEL_OK
+  suffices h : Yul.exec FUEL_OK (.Block mulWad_yul.body) co (.Ok ss vs)
+              = Yul.exec fuel (.Block mulWad_yul.body) co (.Ok ss vs) by
+    rw [← h]
+    -- now goal only mentions FUEL_OK, prove it
+    sorry
+  -- Step 2: prove the fuel reduction
+  apply mulWad_fuel_sufficient fuel hfuel
   rfl
 
+  simp only [interpret_mulWad_result, mulWad_yul]
+  unfold Yul.exec
+  -- goal is now: exec 20 (.Block mulWad_yul.body) co (.Ok ss vs) = ...
+  simp only [exec_block_cons, exec_block_nil, exec_if_true, exec_if_false,
+        exec_let_primcall, exec_exprstmt_prim, eval_lit, eval_var,
+        evalArgs_cons, evalArgs_nil, hvx, hvy]
 
-def mulWad_implem_is_correct : Prop :=
-  ∀ x y fuel: ℕ,
-  ∀ vs : VarStore,
-  ∀ ss : SharedState .Yul,
-  ∀ co : Option YulContract,
-    x < U256_MAX →
-    y < U256_MAX →
+
+  -- goal is now pure arithmetic / VarStore equalities
+  by_cases hov : x * y > U256_MAX <;> simp_all <;> omega
+
+
+  unfold mulWad
+  by_cases hov : x * y > U256_MAX
+  case pos =>
+    simp [hov] at hov
+    sorry
+  case neg =>
+    simp [hov] at hov
+    sorry
+
+
+
+
+-- Yul: gt(x, div(U256_MAX, y))  ↔  x > U256_MAX / y  ↔  x * y > U256_MAX
+-- (for y ≠ 0, this is exactly Nat.div_lt_iff_lt_mul or similar)
+lemma overflow_condition (x y : ℕ) (hy : y ≠ 0) :
+    x > U256_MAX / y ↔ x * y > U256_MAX := by
+  constructor
+  -- · intro h; exact Nat.lt_of_div_lt_div ... -- roughly
+  -- · intro h; exact Nat.div_lt_iff_lt_mul ...
+  . sorry
+  . sorry
+
+lemma uint256_mul_no_overflow (x y : ℕ) (h : x * y < 2^256) :
+    (UInt256.ofNat x * UInt256.ofNat y).val.val = x * y := by
+  -- simp [UInt256.ofNat, HMul.hMul, Mul.mul, UInt256.mul]
+  -- -- reduces to: (x % 2^256 * (y % 2^256)) % 2^256 = x * y
+  -- omega  -- or: rw [Nat.mod_eq_of_lt hx, Nat.mod_eq_of_lt hy]; exact Nat.mod_eq_of_lt h
+  . sorry
+
+theorem mulWad_implem_is_correct_proof : mulWad_implem_is_correct := by sorry
+
+-- Case 1: no overflow, returns a value
+def mulWad_correct_no_overflow : Prop :=
+  ∀ x y fuel vs ss co,
+    x * y ≤ U256_MAX →           -- the actual meaningful condition
     fuel ≥ 20 →
     vs.lookup "x" = some (UInt256.ofNat x) →
     vs.lookup "y" = some (UInt256.ofNat y) →
-    interpret_mulWad_result (Yul.exec fuel (.Block mulWad_yul.body) co (.Ok ss vs)) = mulWad x y
+    interpret_mulWad_result (...) = some (x * y / WAD)
 
-
-
-
-theorem mulWad_implem_is_correct_proof : mulWad_implem_is_correct := by
-  intros x y fuel vs ss co hx hy hfuel hx_lookup hy_lookup
-
-  have pf : fuel ≠ 0 := by omega
-  obtain ⟨fuel₁, rfl⟩ := Nat.exists_eq_succ_of_ne_zero pf
-  unfold interpret_mulWad_result mulWad_yul FunctionDefinition.body
-  unfold Yul.exec -- exec one instruction
-  simp
-  unfold Yul.exec
-  have pf₁ : fuel₁ ≠ 0 := by omega
-  obtain ⟨fuel₂, rfl⟩ := Nat.exists_eq_succ_of_ne_zero pf₁
-  simp
-  unfold Yul.eval
-  have pf₂ : fuel₂ ≠ 0 := by omega
-  obtain ⟨fuel₃, rfl⟩ := Nat.exists_eq_succ_of_ne_zero pf₂
-  simp
-  unfold Yul.evalPrimCall
-  unfold reverse'
-  unfold Yul.evalArgs
-  have pf₃ : fuel₃ ≠ 0 := by omega
-  obtain ⟨fuel₄, rfl⟩ := Nat.exists_eq_succ_of_ne_zero pf₃
-  simp
-  unfold Yul.evalTail
-  unfold Yul.eval
-  have pf₄ : fuel₄ ≠ 0 := by omega
-  obtain ⟨fuel₅, rfl⟩ := Nat.exists_eq_succ_of_ne_zero pf₄
-  simp
-  unfold Yul.evalPrimCall
-  unfold reverse'
-  unfold Yul.evalArgs
-  have pf₅ : fuel₅ ≠ 0 := by omega
-  obtain ⟨fuel₆, rfl⟩ := Nat.exists_eq_succ_of_ne_zero pf₅
-  simp
-  unfold Yul.evalTail
-  unfold Yul.eval
-  have pf₆ : fuel₆ ≠ 0 := by omega
-  obtain ⟨fuel₇, rfl⟩ := Nat.exists_eq_succ_of_ne_zero pf₆
-  simp
-  unfold cons'
-  unfold Yul.evalArgs
-  have pf₇ : fuel₇ ≠ 0 := by omega
-  obtain ⟨fuel₈, rfl⟩ := Nat.exists_eq_succ_of_ne_zero pf₇
-  simp
-  unfold Yul.evalTail
-  unfold Yul.eval
-  have pf₈ : fuel₈ ≠ 0 := by omega
-  obtain ⟨fuel₉, rfl⟩ := Nat.exists_eq_succ_of_ne_zero pf₈
-  simp
-  unfold Yul.evalPrimCall
-  unfold reverse'
-  unfold Yul.evalArgs
-  have pf₉ : fuel₉ ≠ 0 := by omega
-  obtain ⟨fuel₁₀, rfl⟩ := Nat.exists_eq_succ_of_ne_zero pf₉
-  simp
-  unfold Yul.evalTail
-  unfold Yul.eval
-  have pf₁₀ : fuel₁₀ ≠ 0 := by omega
-  obtain ⟨fuel₁₁, rfl⟩ := Nat.exists_eq_succ_of_ne_zero pf₁₀
-  simp
-  unfold cons'
-  unfold Yul.evalArgs
-  have pf₁₁ : fuel₁₁ ≠ 0 := by omega
-  obtain ⟨fuel₁₂, rfl⟩ := Nat.exists_eq_succ_of_ne_zero pf₁₁
-  simp
-  unfold head'
-  simp
-  unfold Yul.exec
-  simp
-  unfold Yul.exec
-  simp
-  unfold Yul.exec
-  unfold Yul.eval
-  unfold Yul.evalPrimCall
-  unfold Yul.reverse'
-  unfold Yul.head'
-  unfold Yul.evalArgs
-  simp
-  unfold Yul.exec
-  unfold Yul.exec
-  simp
-  unfold Yul.execPrimCall
-  unfold Yul.reverse'
-  unfold Yul.evalArgs
-  unfold Yul.evalTail
-  unfold Yul.cons'
-  unfold Yul.eval
-  unfold Yul.evalPrimCall
-  unfold Yul.evalArgs
-  unfold Yul.evalTail
-  unfold Yul.cons'
-  unfold Yul.evalArgs
-  unfold Yul.multifill'
-  unfold Yul.primCall
-  unfold Yul.eval
-  unfold Yul.evalPrimCall
-  unfold Yul.reverse'
-  unfold Yul.evalArgs
-  unfold Yul.evalTail
-  unfold Yul.eval
-  unfold Yul.cons'
-  unfold Yul.evalArgs
-  unfold Yul.evalTail
-  unfold Yul.eval
-  unfold Yul.cons'
-  unfold Yul.evalArgs
-  unfold Yul.head'
-  unfold step
-  unfold Id.run
-  simp
-  rw [lookup_bang_get_by_key vs ss "x" (UInt256.ofNat x) hx_lookup]
-  rw [lookup_bang_get_by_key vs ss "y" (UInt256.ofNat y) hy_lookup]
-  simp
-
-
-
-
-
-
-  --unfold Yul.exec
-
-
-
-
-
-
-
--- theorem mulWad_implem_is_correct_proof : mulWad_implem_is_correct := by
---   intros x y fuel vs ss co hx hy hfuel hx_vs hy_vs
---   unfold interpret_mulWad_result
---   unfold Yul.exec -- exec one instruction
---   unfold mulWad_yul
---   unfold FunctionDefinition.body
---   simp
---   repeat (
---     unfold Yul.exec
---     unfold Yul.eval
---     unfold Yul.evalPrimCall
---     unfold Yul.reverse'
---     unfold Yul.head'
---     unfold Yul.evalArgs
---     unfold Yul.evalTail
---     unfold Yul.cons'
---     unfold Yul.multifill'
---     unfold Yul.primCall
---     unfold Yul.step
---   )
---   simp
-
-
-
--- /--
--- **Main theorem:** Executing `mulWad_yul.body` via the Yul interpreter
--- and extracting the result via `interpResult` agrees with the pure `mulWad`.
--- -/
--- theorem mulWad_yul_equiv
---     (x y fuel: ℕ)
---     (vs : VarStore)
---     -- fuel is sufficient to execute the body
---     (hfuel : fuel ≥ 20)
---     -- variables are passed through the varstore
---     (hx : vs.lookup "x" = some x₀)
---     (hy : vs.lookup "y" = some y₀)
---     (hz : vs.lookup "z" = some ⟨0⟩) :
---     -- executing the yul body matches the pure mulWad function
---     interpResult (Yul.exec fuel (.Block mulWad_yul.body) .none (.Ok (SharedState .Yul) vs)) = mulWad x y := by
---   --unfold interpResult
---   --simp only [Yul.exec, mulWad_yul, mulWad, hx, hy, hz]
-
---   -- overflow guard case
---   by_cases hguard : y₀ ≠ ⟨0⟩ ∧ x₀ > U256_MAX / y₀
---   · have pos_fuel : fuel ≥ 1 := by exact Nat.le_trans (by norm_num) hfuel
---     have spec_revert : mulWad x₀ y₀ = .revert := by
---       unfold mulWad
---       rw [if_pos hguard]
---     let computation := Yul.exec fuel (.Block mulWad_yul.body) .none (.Ok ss vs)
---     have exec_reverts : interpResult computation = .revert := by
---       unfold interpResult
---       -- prove computation always reverts under hguard
---       have computation_reverts : computation = .error .Revert := by
-
-
-
---     -- Now, putting together:
---     rw [exec_body, mulWad_guarded]
---   · -- guard false: y₀ = ⟨0⟩ ∨ ¬(x₀ > U256_MAX / y₀); then mulWad computes normally
---     sorry
+-- Case 2: overflow, execution reverts
+def mulWad_correct_overflow : Prop :=
+  ∀ x y fuel vs ss co,
+    x * y > U256_MAX →
+    y ≠ 0 →                       -- Yul only reverts when y ≠ 0
+    fuel ≥ 20 →
+    vs.lookup "x" = some (UInt256.ofNat x) →
+    vs.lookup "y" = some (UInt256.ofNat y) →
+    exec_reverts (...)             -- whatever "revert happened" looks like in EVMYulLean
 
 end Solady.Proofs.Interp

@@ -1,4 +1,3 @@
-import Solady.MulWad
 import Solady.Code.MulWadYul
 
 open Solady

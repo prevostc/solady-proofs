@@ -100,9 +100,9 @@ For `toNat` (ℕ) goals, `simp` + `Nat` lemmas + `omega` usually suffice.
 -/
 
 example (a b : UInt256) : a + b = b + a := by
-  ext; simp only [val_add]; open Fin.CommRing in ring
+  ext; simp only [val_add]; open Fin.CommRing in ring_nf
 
 example (a b : UInt256) : a * b = b * a := by
-  ext; simp only [val_mul]; open Fin.CommRing in ring
+  ext; simp only [val_mul]; open Fin.CommRing in ring_nf
 
 end Solady.Proofs.UInt256
