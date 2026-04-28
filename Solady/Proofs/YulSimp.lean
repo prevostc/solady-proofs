@@ -210,7 +210,7 @@ lemma evalArgs_cons (fuel : ℕ) (arg : Expr) (rest : List Expr)
 
 -- ============================================================================
 -- 8.  FUEL MONOTONICITY
---     "More fuel never changes a successful result."
+--     "More fuel never changes a non-OutOfFuel result."
 --     Proves once, used everywhere to lift a fuel=N proof to fuel≥N.
 -- ============================================================================
 
@@ -243,67 +243,87 @@ lemma evalArgs_cons (fuel : ℕ) (arg : Expr) (rest : List Expr)
     - Block / If / Let / ExprStmtCall (primop only)
   — all of which have complete proofs above.
 -/
-theorem exec_mono {n : ℕ} (stmt : Stmt) (co : Option YulContract)
-    (s s' : State) (h : exec n stmt co s = .ok s') :
-    ∀ m, m ≥ n → exec m stmt co s = .ok s' := by
-  -- sorry
-  induction n generalizing stmt s s' with
+
+-- ACTUALLY, more fuel doesn't change the result, wether it's success or error
+-- except if the result is an .OutOfFuel error
+
+theorem exec_monotonicity {n : ℕ} {stmt : Stmt}
+  {co : Option YulContract} {s : State} {r : Except Yul.Exception State}
+  (h_res : r ≠ .error .OutOfFuel)
+  (h_exec : exec n stmt co s = r) :
+  ∀ m, m ≥ n → exec m stmt co s = r := by
+  induction n generalizing stmt s r with
   | zero =>
-    simp at h
+    -- at fuel=0, exec always returns OutOfFuel, contradicting h_res
+    simp at h_exec
+    subst h_exec
+    exact absurd rfl h_res
   | succ n ih =>
     intro m hm
     cases m with
     | zero => omega
     | succ m =>
       have hm' : m ≥ n := Nat.le_of_succ_le_succ hm
-      -- Structural induction on stmt
-      -- Each case mirrors the `exec` definition
       match stmt with
-      | .Block [] => simp at h ⊢; exact h
+      | .Block [] =>
+        simp at h_exec ⊢
+        exact h_exec
       | .Block (stmt :: stmts) =>
-        rw [exec_block_cons] at h ⊢
+        rw [exec_block_cons] at h_exec ⊢
         cases hstmt : exec n stmt co s with
         | error e =>
-          rw [hstmt] at h
-          cases h  -- Except.error e = Except.ok s' has no constructors, closes by contradiction
+          rw [hstmt] at h_exec
+          subst h_exec
+          have hne' : (.error e : Except Yul.Exception State) ≠ .error .OutOfFuel := h_res
+          have hmono := ih hne' hstmt m hm'
+          simp [hmono]
+          rfl
         | ok s₁ =>
-          simp [hstmt] at h
-          rw [show exec m stmt co s = .ok s₁ from ih stmt s s₁ hstmt m hm']
-          -- show exec m (.Block stmts) co s₁ = .ok s'
-          have h' : exec n (.Block stmts) co s₁ = .ok s' := by
-            have : (Except.ok s₁ >>= fun s => exec n (.Block stmts) co s) = .ok s' := h
+          rw [hstmt] at h_exec
+          have h_exec' : exec n (.Block stmts) co s₁ = r := by
+            have : (Except.ok s₁ >>= fun s => exec n (.Block stmts) co s) = r := h_exec
             simpa using this
-          exact ih (.Block stmts) s₁ s' h' m hm'
+          have hmono_stmt := ih (by simp) hstmt m hm'
+          rw [hmono_stmt]
+          exact ih h_res h_exec' m hm'
       | .Let vars none =>
-        simp at h ⊢; exact h
+        simp at h_exec ⊢; exact h_exec
       | .Let vars (some (.Lit v)) =>
-        simp at h ⊢; exact h
+        simp at h_exec ⊢; exact h_exec
       | .Let vars (some (.Var id)) =>
-        simp at h ⊢; exact h
+        simp at h_exec ⊢; exact h_exec
       | .Let vars (some (.Call (.inl prim) args)) =>
-        simp at h ⊢
-        sorry -- requires eval_mono for args; see note below
+        simp at h_exec ⊢
+        sorry -- evalArgs_mono needed
       | .Let vars (some (.Call (.inr f) args)) =>
-        simp [exec] at h ⊢
+        simp [exec] at h_exec ⊢
         sorry
       | .If cond body =>
-        simp [exec] at h ⊢
-        sorry -- requires eval_mono for cond
+        simp [exec] at h_exec ⊢
+        sorry -- eval_mono needed
       | .ExprStmtCall (.Call (.inl prim) args) =>
-        simp at h ⊢
-        sorry
+        simp at h_exec ⊢
+        sorry -- evalArgs_mono needed
       | .ExprStmtCall (.Call (.inr f) args) =>
-        simp [exec] at h ⊢
-        sorry -- TODO: add
+        simp [exec] at h_exec ⊢
+        sorry
       | .ExprStmtCall (Expr.Lit _) =>
-        simp [exec] at h
+        simp [exec] at h_exec
+        subst h_exec
+        simp [exec]
       | .ExprStmtCall (Expr.Var _) =>
-        simp [exec] at h
-      | .Continue => simp at h ⊢; exact h
-      | .Break    => simp at h ⊢; exact h
-      | .Leave    => simp at h ⊢; exact h
-      -- TODO: add cases for Switch and For when you need them
-      | .Switch _ _ _ => sorry
-      | .For _ _ _    => sorry
+        simp [exec] at h_exec
+        subst h_exec
+        simp [exec]
+      | .Continue => simp at h_exec ⊢; exact h_exec
+      | .Break    => simp at h_exec ⊢; exact h_exec
+      | .Leave    => simp at h_exec ⊢; exact h_exec
+      | .Switch _ _ _ => sorry -- TODO
+      | .For _ _ _    => sorry -- TODO
+
+theorem exec_monotonicity_ok {n : ℕ} (stmt : Stmt) (co : Option YulContract)
+    (s s' : State) (h : exec n stmt co s = .ok s') :
+    ∀ m, m ≥ n → exec m stmt co s = .ok s' :=
+  exec_monotonicity (h_res := by simp) (h_exec := h)
 
 end Solady.Proofs.YulSimp
