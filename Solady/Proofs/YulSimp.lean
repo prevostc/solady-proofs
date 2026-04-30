@@ -214,7 +214,37 @@ lemma evalArgs_cons (fuel : ℕ) (arg : Expr) (rest : List Expr)
 --     Proves once, used everywhere to lift a fuel=N proof to fuel≥N.
 -- ============================================================================
 
+
 mutual
+
+/-- Lift a `call n'` result to `call m'`, handling both error and ok. -/
+private theorem call_lift_head'
+    {n' m' : ℕ} {args : List EvmYul.Literal} {f : YulFunctionName}
+    {co : Option YulContract} {s : State}
+    {r : Except Yul.Exception (State × UInt256)}
+    (hm'' : m' ≥ n')
+    (h_res : r ≠ .error .OutOfFuel)
+    (h_eval : (match call n' args (some f) co s with
+               | .ok (s, rets) => .ok (s, rets.head!)
+               | .error e => .error e) = r) :
+    (match call m' args (some f) co s with
+     | .ok (s, rets) => .ok (s, rets.head!)
+     | .error e => .error e) = r := by
+  cases hcall' : call n' args (some f) co s with
+  | error e' =>
+    rw [hcall'] at h_eval
+    simp at h_eval
+    subst h_eval
+    have hne' : (.error e' : Except Yul.Exception (State × List EvmYul.Literal)) ≠ .error .OutOfFuel := by
+      intro heq
+      exact absurd rfl (by rwa [← Except.error.inj heq] at h_res)
+    rw [call_monotonicity hne' hcall' m' hm'']
+  | ok sv =>
+    rw [hcall'] at h_eval
+    simp at h_eval
+    subst h_eval
+    rw [call_monotonicity (by simp) hcall' m' hm'']
+
 
 /--
   `eval_monotonicity`: if `eval` returns a non-OutOfFuel result at fuel `n`,
@@ -229,133 +259,78 @@ theorem eval_monotonicity {n : ℕ} {expr : Expr}
     (h_res : r ≠ .error .OutOfFuel)
     (h_eval : eval n expr co s = r) :
     ∀ m, m ≥ n → eval m expr co s = r := by
-  induction n generalizing expr s r with
-  | zero =>
-    simp at h_eval
-    subst h_eval
-    exact absurd rfl h_res
-  | succ n ih =>
-    intro m hm
-    cases m with
-    | zero => omega
-    | succ m =>
-      have hm' : m ≥ n := Nat.le_of_succ_le_succ hm
-      match expr with
-      | .Lit v =>
-        simp at h_eval ⊢; exact h_eval
-      | .Var id =>
-        simp at h_eval ⊢; exact h_eval
-      | .Call (.inl prim) args =>
-        -- evalPrimCall wraps primCall; args evaluated via evalArgs
-        simp [eval] at h_eval ⊢
-        -- evalArgs_monotonicity handles the argument list
-        cases hargs : evalArgs n args.reverse co s with
-        | error e =>
-          simp [reverse', hargs] at h_eval
-          subst h_eval
-          -- h_res : .error e ≠ .error OutOfFuel
-          have hne' : (.error e : Except Yul.Exception (State × List UInt256)) ≠ .error .OutOfFuel := by
-            intro heq
-            apply h_res
-            simp [evalPrimCall, head', heq]
-          have hargs' := evalArgs_monotonicity hne' hargs m hm'
-          simp [reverse', hargs', evalPrimCall, head']
-        | ok sv =>
-          simp [reverse', hargs] at h_eval
-          have hargs' := evalArgs_monotonicity (by simp) hargs m hm'
-          rw [show evalArgs m args.reverse co s = .ok sv from hargs']
-          simp [reverse', evalPrimCall, head']
-          cases hprim : primCall n sv.1 prim sv.2.reverse with
+    induction n generalizing expr s r with
+    | zero =>
+      simp [eval] at h_eval
+      subst h_eval
+      exact absurd rfl h_res
+    | succ n ih =>
+      intro m hm
+      cases m with
+      | zero => omega
+      | succ m =>
+        have hm' : m ≥ n := Nat.le_of_succ_le_succ hm
+        match expr with
+        | .Lit v  => simp [eval] at h_eval ⊢; exact h_eval
+        | .Var id => simp [eval] at h_eval ⊢; exact h_eval
+        | .Call (.inl prim) args =>
+          simp [eval] at h_eval ⊢
+          cases hargs : evalArgs n args.reverse co s with
           | error e =>
-            simp [evalPrimCall, head', hprim] at h_eval
+            simp [reverse', hargs] at h_eval
             subst h_eval
+            have hne' : (.error e : Except Yul.Exception (State × List UInt256)) ≠ .error .OutOfFuel := by
+              intro heq; apply h_res; simp [evalPrimCall, head', heq]
+            simp [reverse', evalArgs_monotonicity hne' hargs m hm', evalPrimCall, head']
+          | ok sv =>
+            simp [reverse', hargs] at h_eval
+            rw [show evalArgs m args.reverse co s = .ok sv from
+              evalArgs_monotonicity (by simp) hargs m hm']
+            simp [reverse', evalPrimCall, head']
+            cases hprim : primCall n sv.1 prim sv.2.reverse with
+            | error e =>
+              simp [evalPrimCall, head', hprim] at h_eval
+              subst h_eval
+              have hne' : (.error e : Except Yul.Exception (State × List UInt256)) ≠ .error .OutOfFuel := by
+                intro heq
+                apply h_res
+                simp [evalPrimCall, head', heq]
+                exact Except.error.inj heq
+              simp [primCall_monotonicity hne' hprim m hm']
+            | ok res =>
+              simp [evalPrimCall, head', hprim] at h_eval
+              subst h_eval
+              simp [primCall_monotonicity (by simp) hprim m hm']
+        | .Call (.inr f) args =>
+          simp [eval] at h_eval ⊢
+          cases hargs : evalArgs n args.reverse co s with
+          | error e =>
+            simp [reverse', hargs] at h_eval
             have hne' : (.error e : Except Yul.Exception (State × List UInt256)) ≠ .error .OutOfFuel := by
               intro heq
               apply h_res
-              simp [evalPrimCall, head', heq]
-              exact Except.error.inj heq
-            simp [primCall_monotonicity hne' hprim m hm']
+              simp [evalArgs, reverse', heq] at h_eval
+              subst h_eval
+              simp [evalCall]
+            have hargs' := evalArgs_monotonicity hne' hargs m hm'
+            simp [reverse', hargs', evalCall, head']
+            simp [evalCall] at h_eval
+            apply h_eval
           | ok res =>
-            simp [evalPrimCall, head', hprim] at h_eval
-            subst h_eval
-            simp [primCall_monotonicity (by simp) hprim m hm']
-      | .Call (.inr f) args =>
-        -- user-defined function: requires call_monotonicity
-        simp [eval] at h_eval ⊢
-        cases hargs : evalArgs n args.reverse co s with
-        | error e =>
-          simp [reverse', hargs] at h_eval
-          have hne' : (.error e : Except Yul.Exception (State × List UInt256)) ≠ .error .OutOfFuel := by
-            intro heq
-            apply h_res
-            simp [evalArgs, reverse', heq] at h_eval
-            subst h_eval
-            simp [evalCall]
-          have hargs' := evalArgs_monotonicity hne' hargs m hm'
-          simp [reverse', hargs', evalCall, head']
-          simp [evalCall] at h_eval
-          apply h_eval
-        | ok res =>
-          simp [evalArgs, reverse', hargs] at h_eval
-          have hargs' := evalArgs_monotonicity (by simp) hargs m hm'
-          rw [show evalArgs m args.reverse co s = .ok res from hargs']
-          simp [reverse', evalCall, head']
-          unfold evalCall at h_eval ⊢
-          cases hcall : call n res.2.reverse f co res.1 with
-          | error e =>
+            simp [reverse', hargs] at h_eval
+            rw [show evalArgs m args.reverse co s = .ok res from
+              evalArgs_monotonicity (by simp) hargs m hm']
+            simp [reverse']
+            unfold evalCall at h_eval ⊢
             cases n with
             | zero =>
-              simp [call] at hcall
-              subst hcall
-              exact absurd h_eval.symm h_res
-            | succ n' =>
-              simp at h_eval ⊢
-              cases m with
-              | zero => omega
-              | succ m' =>
-                have hm'' : m' ≥ n' := by omega
-                simp [head'] at h_eval ⊢
-                cases hcall' : call n' res.2.reverse (some f) co res.1 with
-                | error e' =>
-                  rw [hcall'] at h_eval
-                  simp [head'] at h_eval
-                  subst h_eval
-                  have hne' : (.error e' : Except Yul.Exception (State × List EvmYul.Literal)) ≠ .error .OutOfFuel := by
-                    intro heq
-                    apply h_res
-                    simp [call, Except.error.inj heq] at hcall'
-                    simp [Except.error.inj heq]
-                  rw [call_monotonicity hne' hcall' m' hm'']
-                | ok sv =>
-                  rw [hcall'] at h_eval
-                  simp [head'] at h_eval
-                  subst h_eval
-                  rw [call_monotonicity (by simp) hcall' m' hm'']
-          | ok sv =>
-            cases n with
-            | zero => simp [call] at hcall
+              simp [call] at h_eval; subst h_eval; exact absurd rfl h_res
             | succ n' =>
               cases m with
               | zero => omega
               | succ m' =>
-                have hm'' : m' ≥ n' := by omega
                 simp [head'] at h_eval ⊢
-                cases hcall' : call n' res.2.reverse (some f) co res.1 with
-                | error e' =>
-                  rw [hcall'] at h_eval
-                  simp [head'] at h_eval
-                  subst h_eval
-                  have hne' : (.error e' : Except Yul.Exception (State × List EvmYul.Literal)) ≠ .error .OutOfFuel := by
-                    intro heq
-                    apply h_res
-                    simp [call, Except.error.inj heq] at hcall'
-                    simp [Except.error.inj heq]
-                  rw [call_monotonicity hne' hcall' m' hm'']
-                | ok sv' =>
-                  rw [hcall'] at h_eval
-                  simp [head'] at h_eval
-                  subst h_eval
-                  rw [call_monotonicity (by simp) hcall' m' hm'']
+                exact call_lift_head' (by omega) h_res h_eval
 
 /--
   `evalArgs_monotonicity`: if `evalArgs` returns a non-OutOfFuel result at fuel `n`,
@@ -390,18 +365,37 @@ theorem evalArgs_monotonicity {n : ℕ} {args : List Expr}
         simp at h_eval ⊢
         cases harg : eval n arg co s with
         | error e =>
-          -- head failed: lift error, bind propagates it
           simp [harg] at h_eval
           subst h_eval
-          have hne' : (.error e : Except Yul.Exception (State × UInt256)) ≠ .error .OutOfFuel := h_res
-          simp [eval_monotonicity hne' harg m hm']
-
+          have hne' : (.error e : Except Yul.Exception (State × UInt256)) ≠ .error .OutOfFuel := by
+            intro heq; exact h_res (by simp [evalTail, heq])
+          rw [eval_monotonicity hne' harg m hm']
+          simp [evalTail]
         | ok sv =>
-          -- head succeeded: lift, then recurse on tail
           simp [harg] at h_eval
           rw [eval_monotonicity (by simp) harg m hm']
-          -- simp
-          exact ih h_res h_eval m hm'
+          unfold evalTail at h_eval ⊢
+          cases n with
+          | zero => simp at h_eval; subst h_eval; exact absurd rfl h_res
+          | succ n' =>
+            simp at h_eval ⊢
+            cases hrest : evalArgs n' rest co sv.1 with
+            | error e =>
+              simp [hrest, cons'] at h_eval
+              subst h_eval
+              cases m with
+              | zero => omega
+              | succ m' =>
+                have hm'' : m' ≥ n' := Nat.le_of_succ_le_succ hm'
+                simp [cons', evalArgs_monotonicity h_res hrest m' hm'']
+            | ok sv' =>
+              simp [hrest, cons'] at h_eval
+              subst h_eval
+              cases m with
+              | zero => omega
+              | succ m' =>
+                have hm'' : m' ≥ n' := Nat.le_of_succ_le_succ hm'
+                simp [cons', evalArgs_monotonicity (by simp) hrest m' hm'']
 
 /--
   `primCall_monotonicity`: if `primCall` returns a non-OutOfFuel result at fuel `n`,
