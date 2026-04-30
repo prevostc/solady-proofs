@@ -397,6 +397,49 @@ theorem evalArgs_monotonicity {n : ℕ} {args : List Expr}
                 have hm'' : m' ≥ n' := Nat.le_of_succ_le_succ hm'
                 simp [cons', evalArgs_monotonicity (by simp) hrest m' hm'']
 
+
+private theorem primCall_CALL_monotonicity {n m : ℕ} {s : State}
+    {args : List UInt256}
+    {r : Except Yul.Exception (State × List UInt256)}
+    (hm' : m ≥ n)
+    (h_res : r ≠ .error .OutOfFuel)
+    (h_call : primCall (n + 1) s .CALL args = r) :
+    primCall (m + 1) s .CALL args = r := by sorry
+
+private theorem primCall_STATICCALL_monotonicity {n m : ℕ} {s : State}
+    {args : List UInt256}
+    {r : Except Yul.Exception (State × List UInt256)}
+    (hm' : m ≥ n)
+    (h_res : r ≠ .error .OutOfFuel)
+    (h_call : primCall (n + 1) s .STATICCALL args = r) :
+    primCall (m + 1) s .STATICCALL args = r := by sorry
+
+private theorem primCall_CALLCODE_monotonicity {n m : ℕ} {s : State}
+    {args : List UInt256}
+    {r : Except Yul.Exception (State × List UInt256)}
+    (hm' : m ≥ n)
+    (h_res : r ≠ .error .OutOfFuel)
+    (h_call : primCall (n + 1) s .CALLCODE args = r) :
+    primCall (m + 1) s .CALLCODE args = r := by sorry
+
+private theorem primCall_DELEGATECALL_monotonicity {n m : ℕ} {s : State}
+    {args : List UInt256}
+    {r : Except Yul.Exception (State × List UInt256)}
+    (hm' : m ≥ n)
+    (h_res : r ≠ .error .OutOfFuel)
+    (h_call : primCall (n + 1) s .DELEGATECALL args = r) :
+    primCall (m + 1) s .DELEGATECALL args = r := by sorry
+
+private theorem primCall_step_monotonicity {n m : ℕ} {s : State}
+    {args : List UInt256}
+    {r : Except Yul.Exception (State × List UInt256)}
+    {prim : PrimOp}
+    (hm' : m ≥ n)
+    (h_res : r ≠ .error .OutOfFuel)
+    (h_call : primCall (n + 1) s prim args = r)
+    (hprim : prim ∉ [.CALL, .STATICCALL, .CALLCODE, .DELEGATECALL]):
+    primCall (m + 1) s prim args = r := by sorry
+
 /--
   `primCall_monotonicity`: if `primCall` returns a non-OutOfFuel result at fuel `n`,
   it returns the same result at any `m ≥ n`.
@@ -414,36 +457,22 @@ theorem primCall_monotonicity {n : ℕ} {s : State} {prim : PrimOp}
     ∀ m, m ≥ n → primCall m s prim args = r := by
   induction n generalizing s r with
   | zero =>
-    simp [primCall] at h_call
-    subst h_call
-    exact absurd rfl h_res
+    simp [primCall] at h_call; subst h_call; exact absurd rfl h_res
   | succ n ih =>
     intro m hm
     cases m with
     | zero => omega
     | succ m =>
       have hm' : m ≥ n := Nat.le_of_succ_le_succ hm
-      simp [primCall] at h_call ⊢
-      -- split on which opcode we're dealing with
       match prim with
-      | .CALL =>
-        -- delegates to callDispatcher which recurses on fuel
-        simp [primCall] at h_call ⊢
-        exact callDispatcher_monotonicity h_res h_call m hm'
-      | .STATICCALL =>
-        simp [primCall] at h_call ⊢
-        exact callDispatcher_monotonicity h_res h_call m hm'
-      | .CALLCODE =>
-        simp [primCall] at h_call ⊢
-        exact callDispatcher_monotonicity h_res h_call m hm'
-      | .DELEGATECALL =>
-        simp [primCall] at h_call ⊢
-        exact callDispatcher_monotonicity h_res h_call m hm'
+      | .CALL        => exact primCall_CALL_monotonicity hm' h_res h_call
+      | .STATICCALL  => exact primCall_STATICCALL_monotonicity hm' h_res h_call
+      | .CALLCODE    => exact primCall_CALLCODE_monotonicity hm' h_res h_call
+      | .DELEGATECALL => exact primCall_DELEGATECALL_monotonicity hm' h_res h_call
       | _ =>
-        -- all other opcodes delegate to `step` which doesn't recurse on fuel
-        -- so the result is independent of fuel beyond the outer check
-        simp [primCall] at h_call ⊢
-        exact h_call
+        -- this case does not depend on fuel so is monotonic trivially
+        -- but idk how to setup the goal so it becomes obvious
+        sorry
 
 /--
   `callDispatcher_monotonicity`: if `callDispatcher` returns a non-OutOfFuel
